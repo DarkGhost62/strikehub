@@ -8,6 +8,10 @@ export default function RegisterPage() {
 
   const [loading, setLoading] = useState(false)
   const [checkingUid, setCheckingUid] = useState(false)
+  const [verifyingUid, setVerifyingUid] = useState(false)
+  const [uid, setUid] = useState('')
+  const [verifiedUid, setVerifiedUid] = useState('')
+  const [verifiedUsername, setVerifiedUsername] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [referralCode, setReferralCode] = useState('')
@@ -21,6 +25,69 @@ export default function RegisterPage() {
     }
   }, [])
 
+  function handleUidChange(value: string) {
+    const nextUid = value.replace(/\D/g, '').slice(0, 12)
+
+    setUid(nextUid)
+    setMessage('')
+    setError('')
+
+    // If the UID changes after verification, require verification again.
+    if (nextUid !== verifiedUid) {
+      setVerifiedUid('')
+      setVerifiedUsername('')
+    }
+  }
+
+  async function handleVerifyUid() {
+    const cleanUid = uid.trim()
+
+    setMessage('')
+    setError('')
+
+    if (!/^\d{12}$/.test(cleanUid)) {
+      setError('BloodStrike UID must contain exactly 12 digits.')
+      return
+    }
+
+    setVerifyingUid(true)
+
+    try {
+      const response = await fetch('/api/verify-bloodstrike', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: cleanUid,
+        }),
+      })
+
+      const result = await response.json().catch(() => null)
+
+      if (!response.ok || !result?.verified || !result?.username) {
+        setVerifiedUid('')
+        setVerifiedUsername('')
+        setError(
+          result?.error ||
+            result?.message ||
+            'Unable to verify this BloodStrike UID. Please check the UID and try again.'
+        )
+        return
+      }
+
+      setVerifiedUid(cleanUid)
+      setVerifiedUsername(String(result.username).trim())
+      setMessage('BloodStrike UID verified successfully.')
+    } catch {
+      setVerifiedUid('')
+      setVerifiedUsername('')
+      setError('Unable to verify BloodStrike UID. Please try again.')
+    } finally {
+      setVerifyingUid(false)
+    }
+  }
+
   async function handleRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
@@ -30,11 +97,10 @@ export default function RegisterPage() {
 
     const form = new FormData(event.currentTarget)
 
-    const uid = String(form.get('uid') || '').trim()
+    const currentUid = uid.trim()
     const email = String(form.get('email') || '').trim()
     const phone = String(form.get('phone') || '').trim()
     const country = String(form.get('country') || '').trim()
-    const inGameName = String(form.get('inGameName') || '').trim()
 
     const submittedReferralCode = String(
       form.get('referralCode') || ''
@@ -59,8 +125,14 @@ export default function RegisterPage() {
       profileImageNumber
     ).padStart(2, '0')}.png`
 
-    if (!/^\d{12}$/.test(uid)) {
+    if (!/^\d{12}$/.test(currentUid)) {
       setError('BloodStrike UID must contain exactly 12 digits.')
+      setLoading(false)
+      return
+    }
+
+    if (verifiedUid !== currentUid || !verifiedUsername) {
+      setError('Please verify your BloodStrike UID before creating your account.')
       setLoading(false)
       return
     }
@@ -83,18 +155,12 @@ export default function RegisterPage() {
       return
     }
 
-    if (!inGameName) {
-      setError('Enter your BloodStrike in-game name.')
-      setLoading(false)
-      return
-    }
-
     // Check UID availability before creating the account
     setCheckingUid(true)
 
     const { data: uidAvailable, error: uidError } =
       await supabase.rpc('is_uid_available', {
-        uid_to_check: uid,
+        uid_to_check: currentUid,
       })
 
     setCheckingUid(false)
@@ -127,10 +193,13 @@ export default function RegisterPage() {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
 
         data: {
-          bloodstrike_uid: uid,
+          bloodstrike_uid: currentUid,
           phone,
           country,
-          in_game_name: inGameName,
+
+          // Always use the verified BloodStrike username.
+          in_game_name: verifiedUsername,
+
           referral_code: submittedReferralCode || null,
           terms_accepted: true,
 
@@ -158,6 +227,9 @@ export default function RegisterPage() {
     )
 
     event.currentTarget.reset()
+    setUid('')
+    setVerifiedUid('')
+    setVerifiedUsername('')
     setReferralCode('')
     setLoading(false)
   }
@@ -167,6 +239,12 @@ export default function RegisterPage() {
     : loading
       ? 'Creating account...'
       : 'Create account'
+
+  const verifyButtonText = verifyingUid
+    ? 'Verifying...'
+    : verifiedUid === uid && verifiedUsername
+      ? 'Verified ✓'
+      : 'Verify'
 
   return (
     <main className="min-h-screen bg-black px-4 py-12 text-white">
@@ -198,20 +276,44 @@ export default function RegisterPage() {
               BloodStrike UID
             </label>
 
-            <input
-              name="uid"
-              type="text"
-              inputMode="numeric"
-              maxLength={12}
-              pattern="[0-9]{12}"
-              required
-              placeholder="12-digit UID"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 outline-none focus:border-red-500"
-            />
+            <div className="flex gap-2">
+              <input
+                name="uid"
+                type="text"
+                inputMode="numeric"
+                maxLength={12}
+                pattern="[0-9]{12}"
+                value={uid}
+                onChange={(event) => handleUidChange(event.target.value)}
+                required
+                placeholder="12-digit UID"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 outline-none focus:border-red-500"
+              />
+
+              <button
+                type="button"
+                onClick={handleVerifyUid}
+                disabled={
+                  verifyingUid ||
+                  loading ||
+                  checkingUid ||
+                  !/^\d{12}$/.test(uid)
+                }
+                className="shrink-0 rounded-lg bg-red-600 px-4 py-3 font-bold transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {verifyButtonText}
+              </button>
+            </div>
 
             <p className="mt-1 text-xs text-zinc-500">
               Your UID must contain exactly 12 digits.
             </p>
+
+            {verifiedUid === uid && verifiedUsername && (
+              <p className="mt-1 text-xs text-green-400">
+                ✓ UID verified successfully.
+              </p>
+            )}
           </div>
 
           {/* In-game name */}
@@ -223,10 +325,17 @@ export default function RegisterPage() {
 
             <input
               name="inGameName"
+              type="text"
+              value={verifiedUsername}
+              readOnly
               required
-              placeholder="Your BloodStrike name"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 outline-none focus:border-red-500"
+              placeholder="Verify your UID first"
+              className="w-full cursor-not-allowed rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-zinc-300 outline-none"
             />
+
+            <p className="mt-1 text-xs text-zinc-500">
+              Your in-game name is automatically retrieved from BloodStrike and cannot be changed.
+            </p>
           </div>
 
           {/* Email */}
@@ -376,7 +485,7 @@ export default function RegisterPage() {
 
           <button
             type="submit"
-            disabled={loading || checkingUid}
+            disabled={loading || checkingUid || verifyingUid}
             className="w-full rounded-lg bg-red-600 px-4 py-3 font-bold transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {buttonText}
