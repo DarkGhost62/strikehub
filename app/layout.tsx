@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "STRIKEHUB",
   description: "Your Game. Your Squad. Your Competition.",
+  icons: {
+    icon: "/strikehub-icon.png",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

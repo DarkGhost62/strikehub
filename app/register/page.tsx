@@ -179,6 +179,44 @@ export default function RegisterPage() {
       return
     }
 
+    // Check email availability before creating the account
+    const { data: emailAvailable, error: emailError } =
+      await supabase.rpc('is_email_available', {
+        email_to_check: email,
+      })
+
+    if (emailError) {
+      console.error('Email availability check failed:', emailError)
+      setError('Unable to check email availability. Please try again.')
+      setLoading(false)
+      return
+    }
+
+    if (!emailAvailable) {
+      setError('This email address is already registered on STRIKEHUB.')
+      setLoading(false)
+      return
+    }
+
+    // Check phone availability before creating the account
+    const { data: phoneAvailable, error: phoneError } =
+      await supabase.rpc('is_phone_available', {
+        phone_to_check: phone,
+      })
+
+    if (phoneError) {
+      console.error('Phone availability check failed:', phoneError)
+      setError('Unable to check phone availability. Please try again.')
+      setLoading(false)
+      return
+    }
+
+    if (!phoneAvailable) {
+      setError('This phone number is already registered on STRIKEHUB.')
+      setLoading(false)
+      return
+    }
+
     /*
      * Create the Supabase account.
      *
